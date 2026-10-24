@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Записки — для духовенства</title>
-<link rel="icon" href="icon.png">
-<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon-admin.png">
+<link rel="apple-touch-icon" href="icon-admin.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Записки">
+<meta name="apple-mobile-web-app-title" content="Духовенство">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#8e2a1c">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -460,9 +460,14 @@ var SH = { lit: 'Л', mol: 'М', pan: 'П', oth: 'І' };
 var A = { pin: '', today: '', ym: '', month: {}, sel: '', settings: null, services: [], trebas: [], tab: 'tabNotes', font: 28 };
 
 /* ── связь с сервером ── */
+// ключ цього телефона: з ним вхід працює й тоді, коли хтось підбирає PIN і вхід тимчасово закрито
+var DEV = ''; try { DEV = localStorage.getItem('zdev') || ''; } catch (e) {}
+function saveDev(d) { if (d) { DEV = d; try { localStorage.setItem('zdev', d); } catch (e) {} } }
 function call(fn, args, ok) {
+  if (DEV && /^clergy/.test(fn) && fn !== 'clergySetPin' && /^\d{4,8}$/.test(String(args[0]))) args = [args[0] + '#' + DEV].concat(args.slice(1));
   var r = google.script.run.withSuccessHandler(function (res) {
     if (res && res.relogin) { forget(); showLogin(false, 'Увійдіть знову'); return; }
+    if (res && res.dev) saveDev(res.dev);
     ok(res);
   }).withFailureHandler(function () { ok({ ok: false, error: 'Немає зв’язку. Спробуйте ще раз.' }); });
   r[fn].apply(r, args);
@@ -1317,7 +1322,7 @@ function plural(n, a, b, c) { var m = n % 10, h = n % 100; return m === 1 && h !
   }
   call('clergyLogin', [p, window.PUBLIC_URL || ''], function (r) {
     if (r.ok) { A.pin = p; start(r); }
-    else showLogin(!!r.needPin, r.needPin ? '' : 'Увійдіть знову');
+    else showLogin(!!r.needPin, r.needPin ? '' : r.locked ? r.error : 'Увійдіть знову');
   });
 })();
 </script>

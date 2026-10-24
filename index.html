@@ -81,6 +81,7 @@
   .pchips { display: flex; flex-wrap: wrap; gap: 6px; }
   .pchip { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 99px; padding: 7px 12px; font: inherit; font-size: 15px; cursor: pointer; }
   .pchip.on { background: var(--gold-bg); border-color: var(--gold); }
+  .myold > summary { cursor: pointer; margin: 14px 0 8px; }
   .pkh { flex-basis: 100%; font-size: 13px; color: var(--muted); margin-top: 4px; }
   .pchip.on::before { content: '✓ '; color: var(--gold); }
   .plist { margin: 0 0 10px; padding: 0; list-style: none; }
@@ -220,6 +221,7 @@
     <div class="card">
       <p class="lbl">Імена — у родовому відмінку, по одному в полі</p>
       <div id="names"></div>
+      <div aria-hidden="true" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden"><label>Сайт<input type="text" id="hpf" name="website" tabindex="-1" autocomplete="off"></label></div>
       <button class="link" id="add">+ Додати ім’я</button>
       <p class="ok hidden" id="pomNote" style="text-align:left"></p>
       <div id="pomPick" class="hidden">
@@ -340,7 +342,9 @@ function init() {
   reset();
 }
 
+var FORM_T0 = Date.now();
 function reset() {
+  FORM_T0 = Date.now();
   var keepT = S ? S.t : 0;
   S = { t: keepT, kind: '', date: '', svc: '', pay: '', showAll: false, busy: false };
   $('names').innerHTML = '';
@@ -504,7 +508,12 @@ function submit() {
   if (!S.date) return err('Оберіть дату');
   if (!names().length) return err('Впишіть хоча б одне ім’я');
   if (!S.pay) return err('Оберіть варіант пожертви');
-  var payload = { treba: treba().id, kind: S.kind, date: S.date, names: names(), pay: S.pay, svc: treba().other ? S.svc : '' };
+  // людина не встигає заповнити форму швидше ніж за секунду — сервер такі запити відхиляє як ботів;
+  // якщо натиснули дуже швидко (наприклад, «Подати ще раз»), просто трохи почекаємо
+  var wait = 1100 - (Date.now() - FORM_T0);
+  if (wait > 0) { S.busy = true; $('go').disabled = true; $('go').textContent = 'Надсилаємо…'; setTimeout(function () { S.busy = false; submit(); }, wait); return; }
+  var payload = { treba: treba().id, kind: S.kind, date: S.date, names: names(), pay: S.pay, svc: treba().other ? S.svc : '',
+    hp: ($('hpf') && $('hpf').value) || '', ms: Date.now() - FORM_T0 };
   S.busy = true; $('go').disabled = true; $('go').textContent = 'Надсилаємо…';
   var done = function (r) {
     S.busy = false; $('go').disabled = false; $('go').textContent = 'Подати записку';
@@ -564,7 +573,10 @@ function kyivNow() {
     var p = {}; new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).forEach(function (x) { p[x.type] = x.value; });
     return p.year + '-' + p.month + '-' + p.day + ' ' + p.hour + ':' + p.minute;
-  } catch (e) { return ''; }
+  } catch (e) {
+    var d = new Date(), z = function (v) { return (v < 10 ? '0' : '') + v; };
+    return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+  }
 }
 function same(a, b) { return a.trim().toLowerCase() === b.trim().toLowerCase(); }
 
@@ -808,8 +820,10 @@ function saveDoneToPom() {
 /* ── мої записки ── */
 var MY = lsGet('zp_my', []);
 function saveMy() { MY = MY.slice(0, 30); lsSet('zp_my', MY); updateMyCnt(); }
+// «відкрита» записка — ще можна змінити (прийом не закінчився); лише такі рахуються в позначці на вкладці
+function isOpen(x, now) { return !x.gone && x.editable !== false && !!x.until && x.until > (now || kyivNow()); }
 function updateMyCnt() {
-  var now = kyivNow(), n = MY.filter(function (x) { return x.until > now; }).length;
+  var now = kyivNow(), n = MY.filter(function (x) { return isOpen(x, now); }).length;
   $('myCnt').textContent = n; $('myCnt').classList.toggle('hidden', !n);
 }
 function rememberNote(r, p) {
@@ -827,8 +841,17 @@ function renderMy(refresh) {
   var box = $('myList'), now = kyivNow();
   if (!MY.length) { box.innerHTML = '<div class="card"><p class="soft" style="margin:0">Тут з’являться записки, які ви подасте з цього телефона.</p></div>'; return; }
   box.innerHTML = '';
-  MY.forEach(function (x, i) {
-    var open = x.editable !== undefined ? x.editable : x.until > now;
+  // зверху — записки, які ще можна змінити; подані раніше — згорнуті нижче, щоб не накопичувались
+  var openL = MY.filter(function (x) { return isOpen(x, now); }), oldL = MY.filter(function (x) { return !isOpen(x, now); });
+  var oldBox = null;
+  if (openL.length) { var h1 = el('p', 'lbl'); h1.textContent = 'Ще можна змінити'; box.appendChild(h1); }
+  if (oldL.length) {
+    oldBox = el('details', 'myold');
+    var sm = el('summary', 'lbl'); sm.textContent = 'Подані раніше · ' + oldL.length; oldBox.appendChild(sm);
+    if (!openL.length) oldBox.open = true;
+  }
+  openL.concat(oldL).forEach(function (x, i) {
+    var open = isOpen(x, now);
     var c = el('div', 'card note');
     c.innerHTML = '<h3>' + esc(x.trebaName) + ' · ' + esc(about(x.kind).toLowerCase()) + '</h3>' +
       '<p class="meta">' + (x.sor ? 'Початок: ' : '') + esc(x.dateLabel) + ' · ' + x.names.length + ' ' + plural(x.names.length, 'ім’я', 'імені', 'імен') + '</p>' +
@@ -838,8 +861,9 @@ function renderMy(refresh) {
       '<div class="btns">' + (open && !x.gone ? '<button data-a="edit">Змінити</button>' : '') + '<button data-a="again" class="pri">Подати ще раз</button></div>';
     c.querySelector('[data-a=again]').onclick = function () { again(x); };
     if (c.querySelector('[data-a=edit]')) c.querySelector('[data-a=edit]').onclick = function () { editNote(c, x); };
-    box.appendChild(c);
+    (open || !oldBox ? box : oldBox).appendChild(c);
   });
+  if (oldBox) box.appendChild(oldBox);
   if (refresh) refreshMy();
 }
 // посилання на банку Monobank: одразу підставляємо суму та коментар із номером записки
@@ -872,9 +896,7 @@ function refreshMy() {
       if (st.date && st.date !== x.date) { x.date = st.date; x.dateLabel = st.dateLabel; } // батюшки перенесли службу
       if (st.until) x.until = st.until;
     });
-    saveMy(); renderMy(false);
-    var n = MY.filter(function (x) { return x.editable; }).length;
-    $('myCnt').textContent = n; $('myCnt').classList.toggle('hidden', !n);
+    saveMy(); renderMy(false); updateMyCnt();
   }).noteStatus(list);
 }
 function again(x) {
