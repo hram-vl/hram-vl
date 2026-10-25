@@ -82,6 +82,11 @@
   .pchip { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 99px; padding: 7px 12px; font: inherit; font-size: 15px; cursor: pointer; }
   .pchip.on { background: var(--gold-bg); border-color: var(--gold); }
   .myold > summary { cursor: pointer; margin: 14px 0 8px; }
+  .quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .quick button { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 99px; padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+  .quick button.on { background: var(--gold-bg); border-color: var(--gold); }
+  .chip.dis { opacity: .35; }
+  .chip.date .mk { display: block; font-size: 10px; color: var(--gold); letter-spacing: .02em; line-height: 1.2; }
   .pkh { flex-basis: 100%; font-size: 13px; color: var(--muted); margin-top: 4px; }
   .pchip.on::before { content: '✓ '; color: var(--gold); }
   .plist { margin: 0 0 10px; padding: 0; list-style: none; }
@@ -200,8 +205,14 @@
   <section id="vForm">
 
   <div id="form">
+    <div class="card hidden" id="modeCard">
+      <div class="grid" id="modes">
+        <button class="chip" data-m="0">Одна записка<small>одна треба, одна дата</small></button>
+        <button class="chip" data-m="1">На кілька дат<small>кілька треб і дат разом</small></button>
+      </div>
+    </div>
     <div class="card">
-      <p class="lbl">Треба</p>
+      <p class="lbl" id="trebaLbl">Треба</p>
       <div class="grid" id="trebas"></div>
     </div>
 
@@ -211,7 +222,8 @@
     </div>
 
     <div class="card">
-      <p class="lbl">Дата</p>
+      <p class="lbl" id="dateLbl">Дата</p>
+      <div class="quick hidden" id="quick"></div>
       <div class="dates" id="dates"></div>
       <button class="link hidden" id="more">Показати ще дати</button>
       <p class="dnote" id="dnote"></p>
@@ -323,11 +335,14 @@ function init() {
   $('temple').textContent = CFG.temple;
   document.title = CFG.temple + ' — записки';
   $('add').onclick = function () { addName('', true); };
-  $('more').onclick = function () { S.showAll = true; renderDates(); };
+  $('more').onclick = function () { S.showAll = true; if (S.multi) renderMultiDates(); else renderDates(); };
   [].forEach.call(document.querySelectorAll('#pays .chip'), function (b) {
     b.onclick = function () { S.pay = b.getAttribute('data-pay'); renderPays(); clearErr(); };
   });
   $('go').onclick = submit;
+  [].forEach.call(document.querySelectorAll('#modes .chip'), function (b) {
+    b.onclick = function () { S.multi = b.getAttribute('data-m') === '1'; S.showAll = false; render(); clearErr(); };
+  });
   $('again').onclick = reset;
   $('savePom').onclick = saveDoneToPom;
   [].forEach.call(document.querySelectorAll('#seg button'), function (b) {
@@ -338,6 +353,7 @@ function init() {
   $('sPrev').onclick = function () { SW--; renderSched(); };
   $('sNext').onclick = function () { SW++; renderSched(); };
   updateMyCnt();
+  if (MY.length) refreshMy(); // уточнюємо стан записок (дати, сорокоусти) — щоб позначка на вкладці була точною
   if (!CFG.bankUrl && !CFG.card) $('pays').children[0].classList.add('hidden');
   reset();
 }
@@ -346,7 +362,7 @@ var FORM_T0 = Date.now();
 function reset() {
   FORM_T0 = Date.now();
   var keepT = S ? S.t : 0;
-  S = { t: keepT, kind: '', date: '', svc: '', pay: '', showAll: false, busy: false };
+  S = { t: keepT, kind: '', date: '', svc: '', pay: '', showAll: false, busy: false, multi: false, mt: [], md: {}, per: '' };
   $('names').innerHTML = '';
   addName(); addName(); addName();
   $('pomNote').classList.add('hidden');
@@ -360,6 +376,14 @@ function reset() {
 function treba() { return CFG.trebas[S.t]; }
 
 function render() {
+  var bt = batchTrebas();
+  $('modeCard').classList.toggle('hidden', !bt.length);
+  [].forEach.call(document.querySelectorAll('#modes .chip'), function (b) { b.classList.toggle('on', (b.getAttribute('data-m') === '1') === !!S.multi); });
+  $('trebaLbl').textContent = S.multi ? 'Треби (можна кілька)' : 'Треба';
+  $('dateLbl').textContent = S.multi ? 'Дати (можна кілька)' : 'Дата';
+  $('quick').classList.toggle('hidden', !S.multi);
+  $('go').textContent = S.multi ? 'Подати записки' : 'Подати записку';
+  if (S.multi) return renderMulti();
   var box = $('trebas'); box.innerHTML = '';
   CFG.trebas.forEach(function (t, i) {
     var b = el('button', 'chip' + (i === S.t ? ' on' : ''));
@@ -497,6 +521,7 @@ function priceText(p, n) {
 
 function calc() {
   renderPomPick();
+  if (S.multi) return calcMulti();
   var n = names().length, p = treba().price;
   $('calc').textContent = priceText(p, n);
   $('sum').textContent = (n ? sumFor(p, n) : (p.per === 'name' ? 0 : p.price)) + ' грн';
@@ -504,6 +529,7 @@ function calc() {
 
 function submit() {
   if (S.busy) return;
+  if (S.multi) return submitMulti();
   if (!S.kind) return err('Оберіть: за здоров’я чи за упокій');
   if (!S.date) return err('Оберіть дату');
   if (!names().length) return err('Впишіть хоча б одне ім’я');
@@ -525,6 +551,180 @@ function submit() {
     .submitNote(payload);
 }
 
+/* ── кілька треб і дат за раз ── */
+var SVC_SHORT = { lit: 'Літ', mol: 'Мол', pan: 'Пан' };
+var SVC_OF_T = { prosk: 'lit', zak: 'lit', mol: 'mol', pan: 'pan' };
+function batchTrebas() { return CFG.trebas.filter(function (t) { return !t.sorokoust && !t.other && t.dates.length; }); }
+function trebaById(id) { return CFG.trebas.filter(function (t) { return t.id === id; })[0]; }
+function multiDates() {
+  var map = {}, out = [];
+  S.mt.forEach(function (id) {
+    var t = trebaById(id); if (!t) return;
+    t.dates.forEach(function (d) {
+      if (!map[d.key]) { map[d.key] = { d: d, svc: {} }; out.push(map[d.key]); }
+      map[d.key].svc[SVC_OF_T[t.id] || 'lit'] = 1;
+    });
+  });
+  out.sort(function (a, b) { return a.d.key < b.d.key ? -1 : 1; });
+  return out;
+}
+function multiItems() {
+  var items = [];
+  Object.keys(S.md).sort().forEach(function (k) {
+    S.mt.forEach(function (id) {
+      var t = trebaById(id);
+      if (t && t.dates.some(function (d) { return d.key === k; })) items.push({ treba: id, date: k });
+    });
+  });
+  return items;
+}
+function renderMulti() {
+  var bt = batchTrebas();
+  S.mt = S.mt.filter(function (id) { var t = trebaById(id); return t && bt.indexOf(t) >= 0 && (!S.kind || t.kinds.indexOf(S.kind) >= 0); });
+  var box = $('trebas'); box.innerHTML = '';
+  bt.forEach(function (t) {
+    var ok = !S.kind || t.kinds.indexOf(S.kind) >= 0, on = S.mt.indexOf(t.id) >= 0;
+    var b = el('button', 'chip' + (on ? ' on' : '') + (ok ? '' : ' dis'));
+    b.innerHTML = (on ? '✓ ' : '') + esc(t.name) + (t.kinds.length === 1 ? '<small>лише ' + esc(about(t.kinds[0]).toLowerCase()) + '</small>' : '');
+    b.onclick = function () {
+      if (!ok) { S.kind = t.kinds[0]; }
+      var i = S.mt.indexOf(t.id); if (i >= 0) S.mt.splice(i, 1); else S.mt.push(t.id);
+      if (!S.kind) { var ks = kindsOfMulti(); if (ks.length === 1) S.kind = ks[0]; }
+      render(); clearErr();
+    };
+    box.appendChild(b);
+  });
+  var kinds = ['здоров’я', 'упокій'];
+  if (S.lastKind && S.kind && S.lastKind !== S.kind) stripKind(S.lastKind, S.kind);
+  if (S.kind) S.lastKind = S.kind;
+  S.kinds = S.kind ? [S.kind] : kinds;
+  var kb = $('kinds'); kb.innerHTML = '';
+  kinds.forEach(function (k) {
+    var b = el('button', 'chip' + (k === S.kind ? ' on' : ''));
+    b.textContent = about(k);
+    b.onclick = function () { S.kind = k; render(); clearErr(); };
+    kb.appendChild(b);
+  });
+  var noFree = CFG.allowFree === false || S.mt.some(function (id) { return trebaById(id).noFree; });
+  $('pays').children[2].classList.toggle('hidden', !!noFree);
+  if (noFree && S.pay === 'none') S.pay = '';
+  $('softNote').textContent = 'Пожертву можна внести однією сумою за всі записки.';
+  $('svcBox').classList.add('hidden');
+  renderMultiDates(); renderPays(); calc();
+}
+function kindsOfMulti() {
+  var ks = ['здоров’я', 'упокій'];
+  S.mt.forEach(function (id) { var t = trebaById(id); ks = ks.filter(function (k) { return t.kinds.indexOf(k) >= 0; }); });
+  return ks;
+}
+var PERIODS = [['14', '2 тижні'], ['31', 'Місяць'], ['92', '3 місяці'], ['all', 'Усі дати']];
+function renderMultiDates() {
+  var md = multiDates(), box = $('dates'), q = $('quick');
+  // прибираємо дати, яких уже немає серед обраних треб
+  var keys = md.map(function (x) { return x.d.key; });
+  Object.keys(S.md).forEach(function (k) { if (keys.indexOf(k) < 0) delete S.md[k]; });
+  q.innerHTML = ''; box.innerHTML = '';
+  if (!S.mt.length) {
+    box.innerHTML = '<p class="hint" style="grid-column:1/-1">Спершу оберіть одну або кілька треб.</p>';
+    $('more').classList.add('hidden'); $('dnote').textContent = ''; return;
+  }
+  PERIODS.concat([['none', 'Очистити']]).forEach(function (p) {
+    var b = el('button', S.per === p[0] ? 'on' : ''); b.type = 'button'; b.textContent = p[1];
+    b.onclick = function () {
+      S.md = {}; S.per = p[0];
+      if (p[0] !== 'none') {
+        var to = p[0] === 'all' ? '9999' : addDaysKey(md.length ? todayKey() : '', Number(p[0]));
+        md.forEach(function (x) { if (x.d.key <= to) S.md[x.d.key] = 1; });
+        if (p[0] !== '14') S.showAll = true;
+      } else S.per = '';
+      renderMultiDates(); calc(); clearErr();
+    };
+    q.appendChild(b);
+  });
+  var shown = S.showAll ? md : md.slice(0, 12);
+  shown.forEach(function (x) {
+    var d = x.d, on = !!S.md[d.key];
+    var b = el('button', 'chip date' + (d.title ? ' hol' : '') + (on ? ' on' : ''));
+    b.innerHTML = '<small>' + (d.today ? 'сьогодні' : esc(d.dow)) + '</small><b>' + d.day + '</b><small>' + esc(d.mon) + '</small>' +
+      '<span class="mk">' + Object.keys(x.svc).map(function (k) { return SVC_SHORT[k]; }).join('·') + '</span>';
+    b.onclick = function () { if (S.md[d.key]) delete S.md[d.key]; else S.md[d.key] = 1; S.per = ''; renderMultiDates(); calc(); clearErr(); };
+    box.appendChild(b);
+  });
+  $('more').classList.toggle('hidden', S.showAll || md.length <= 12);
+  var nd = Object.keys(S.md).length, ni = multiItems().length;
+  $('dnote').textContent = nd ? 'Обрано: ' + nd + ' ' + plural(nd, 'дата', 'дати', 'дат') + ' · ' + ni + ' ' + plural(ni, 'записка', 'записки', 'записок') +
+    ' (на кожну службу — окрема записка з тими самими іменами)' : 'Торкніться дат або оберіть період угорі. Літ — Літургія, Мол — молебень, Пан — панахида.';
+}
+function todayKey() { return kyivNow().slice(0, 10); }
+function addDaysKey(k, n) { var d = new Date(Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)) + n * 864e5); return d.toISOString().slice(0, 10); }
+function calcMulti() {
+  var n = names().length, items = multiItems(), sum = 0;
+  items.forEach(function (it) { sum += sumFor(trebaById(it.treba).price, Math.max(1, n)); });
+  $('calc').textContent = items.length ? 'Зазвичай жертвують за ' + items.length + ' ' + plural(items.length, 'записку', 'записки', 'записок') + ' разом' : 'Оберіть треби й дати';
+  $('sum').textContent = (n ? sum : (items.length ? sum : 0)) + ' грн';
+}
+function submitMulti() {
+  if (!S.mt.length) return err('Оберіть хоча б одну требу');
+  if (!S.kind) return err('Оберіть: за здоров’я чи за упокій');
+  var items = multiItems();
+  if (!items.length) return err('Оберіть дати');
+  if (items.length > 200) return err('Забагато записок за раз — оберіть менший період');
+  if (!names().length) return err('Впишіть хоча б одне ім’я');
+  if (!S.pay) return err('Оберіть варіант пожертви');
+  var wait = 1100 - (Date.now() - FORM_T0);
+  if (wait > 0) { S.busy = true; $('go').disabled = true; $('go').textContent = 'Надсилаємо…'; setTimeout(function () { S.busy = false; submit(); }, wait); return; }
+  var payload = { kind: S.kind, items: items, names: names(), pay: S.pay, hp: ($('hpf') && $('hpf').value) || '', ms: Date.now() - FORM_T0 };
+  S.busy = true; $('go').disabled = true; $('go').textContent = 'Надсилаємо…';
+  var done = function (r) {
+    S.busy = false; $('go').disabled = false; $('go').textContent = 'Подати записки';
+    if (!r || !r.ok) return err((r && r.error) || 'Не вдалося надіслати. Спробуйте ще раз.');
+    showDoneBatch(r, payload);
+  };
+  google.script.run.withSuccessHandler(done)
+    .withFailureHandler(function () { done({ ok: false, error: 'Немає зв’язку. Спробуйте ще раз.' }); })
+    .submitBatch(payload);
+}
+function batchSummary(notes) {
+  var by = {}, order = [];
+  notes.forEach(function (n) { if (!by[n.trebaName]) { by[n.trebaName] = 0; order.push(n.trebaName); } by[n.trebaName]++; });
+  return order.map(function (k) { return k + ' — ' + by[k]; }).join(', ');
+}
+function cap(t) { t = String(t || ''); return t.charAt(0).toUpperCase() + t.slice(1); }
+function shortDate(k) { return +k.slice(8, 10) + '.' + k.slice(5, 7); }
+function showDoneBatch(r, p) {
+  S.last = { names: r.names, kind: p.kind };
+  MY.unshift({ batch: true, id: r.bid, token: r.token, kind: p.kind, names: r.names, pay: p.pay, sum: r.sum,
+    trebaIds: S.mt.slice(), notes: r.notes });
+  saveMy();
+  $('savePom').textContent = 'Зберегти імена в помянник'; $('savePom').disabled = false;
+  $('form').classList.add('hidden'); $('done').classList.remove('hidden');
+  var ks = r.notes.map(function (n) { return n.date; });
+  $('doneText').innerHTML = 'Записок: <b>' + r.notes.length + '</b> · ' + esc(about(p.kind).toLowerCase()) + '<br>' + esc(batchSummary(r.notes)) +
+    '<br>' + (ks.length ? 'з ' + shortDate(ks[0]) + ' по ' + shortDate(ks[ks.length - 1]) : '') + ' · ' + r.count + ' ' + plural(r.count, 'ім’я', 'імені', 'імен') + ' у кожній';
+  payBoxHtml(p.pay, r.sum, r.bid, true);
+  window.scrollTo(0, 0);
+}
+function payBoxHtml(pay, sum, id, many) {
+  var box = $('payBox'), h = '';
+  if (pay === 'online') {
+    h += '<p>Пожертва' + (many ? ' за всі записки' : '') + ': <b>' + sum + ' грн</b></p>';
+    if (CFG.bankUrl) h += '<a class="main" target="_blank" rel="noopener" href="' + esc(jarUrl(sum, id, many)) + '">Відкрити банку</a>';
+    if (CFG.card) {
+      h += '<p class="soft" style="margin:14px 0 0">' + (CFG.bankUrl ? 'Або переказом на картку' : 'Переказ на картку') +
+        (CFG.cardName ? ' (' + esc(CFG.cardName) + ')' : '') + ':</p>' +
+        '<div class="copy"><input readonly id="cardNum" value="' + esc(CFG.card) + '"><button id="copyBtn">Копіювати</button></div>';
+    }
+    h += '<p class="soft">У коментарі можна вказати: ' + (many ? 'записки ' : 'записка ') + esc(id) + '</p>';
+  } else if (pay === 'cash') {
+    h += '<p>Пожертву можна залишити в церковній лавці' + (many ? ' — однією сумою, <b>' + sum + ' грн</b>' : '') + '.</p>';
+  } else {
+    h += '<p>Імена будуть пом’януті за богослужінням.</p>';
+  }
+  h += '<p style="font:700 20px/1.3 \'Old Standard TT\',Georgia,serif;margin-top:14px">Спаси, Господи!</p>';
+  box.innerHTML = h;
+  if ($('copyBtn')) $('copyBtn').onclick = copyCard;
+}
+
 function showDone(r, p) {
   S.last = { names: r.names || p.names, kind: p.kind };
   rememberNote(r, p);
@@ -533,24 +733,7 @@ function showDone(r, p) {
   $('doneText').innerHTML = esc(r.trebaName || treba().name) + ' · ' + esc(about(p.kind).toLowerCase()) + '<br>' +
     (r.sorCount ? 'Початок: ' + esc(r.dateLabel) + '<br>' + r.sorCount + ' літургій' + (r.sorEnd ? ', останнє поминання орієнтовно: ' + esc(r.sorEnd) : '') : esc(r.dateLabel)) +
     '<br>' + r.count + ' ' + plural(r.count, 'ім’я', 'імені', 'імен');
-  var box = $('payBox'), h = '';
-  if (p.pay === 'online') {
-    h += '<p>Пожертва: <b>' + r.sum + ' грн</b></p>';
-    if (CFG.bankUrl) h += '<a class="main" target="_blank" rel="noopener" href="' + esc(jarUrl(r.sum, r.id)) + '">Відкрити банку</a>';
-    if (CFG.card) {
-      h += '<p class="soft" style="margin:14px 0 0">' + (CFG.bankUrl ? 'Або переказом на картку' : 'Переказ на картку') +
-        (CFG.cardName ? ' (' + esc(CFG.cardName) + ')' : '') + ':</p>' +
-        '<div class="copy"><input readonly id="cardNum" value="' + esc(CFG.card) + '"><button id="copyBtn">Копіювати</button></div>';
-    }
-    h += '<p class="soft">У коментарі можна вказати: записка ' + esc(r.id) + '</p>';
-  } else if (p.pay === 'cash') {
-    h += '<p>Пожертву можна залишити в церковній лавці.</p>';
-  } else {
-    h += '<p>Імена будуть пом’януті за богослужінням.</p>';
-  }
-  h += '<p style="font:700 20px/1.3 \'Old Standard TT\',Georgia,serif;margin-top:14px">Спаси, Господи!</p>';
-  box.innerHTML = h;
-  if ($('copyBtn')) $('copyBtn').onclick = copyCard;
+  payBoxHtml(p.pay, r.sum, r.id, false);
   window.scrollTo(0, 0);
 }
 
@@ -821,7 +1004,11 @@ function saveDoneToPom() {
 var MY = lsGet('zp_my', []);
 function saveMy() { MY = MY.slice(0, 30); lsSet('zp_my', MY); updateMyCnt(); }
 // «відкрита» записка — ще можна змінити (прийом не закінчився); лише такі рахуються в позначці на вкладці
-function isOpen(x, now) { return !x.gone && x.editable !== false && !!x.until && x.until > (now || kyivNow()); }
+function isOpen(x, now) {
+  if (x.batch) return openNotes(x, now).length > 0;
+  return !x.gone && x.editable !== false && !!x.until && x.until > (now || kyivNow());
+}
+function openNotes(x, now) { now = now || kyivNow(); return (x.notes || []).filter(function (n) { return !n.gone && n.editable !== false && n.until > now; }); }
 function updateMyCnt() {
   var now = kyivNow(), n = MY.filter(function (x) { return isOpen(x, now); }).length;
   $('myCnt').textContent = n; $('myCnt').classList.toggle('hidden', !n);
@@ -833,8 +1020,67 @@ function rememberNote(r, p) {
     until: r.until, sor: r.sorCount || 0, limit: null });
   saveMy();
 }
+function batchCard(x, now) {
+  var c = el('div', 'card note'), op = openNotes(x, now), notes = (x.notes || []).filter(function (n) { return !n.gone; });
+  var ks = notes.map(function (n) { return n.date; }).sort();
+  var nx = op.slice().sort(function (a, b) { return a.until < b.until ? -1 : 1; })[0];
+  // найближчий день (сьогодні або пізніше) і треби цього дня; усі дні — у розгорнутому списку
+  var today = (now || kyivNow()).slice(0, 10), byDay = {}, dayKeys = [];
+  notes.forEach(function (n) { if (!byDay[n.date]) { byDay[n.date] = { l: n.dateLabel, t: [] }; dayKeys.push(n.date); } byDay[n.date].t.push(n.trebaName); });
+  dayKeys.sort();
+  var near = dayKeys.filter(function (k) { return k >= today; })[0];
+  c.innerHTML = '<h3>Записка на кілька дат · ' + esc(about(x.kind).toLowerCase()) + '</h3>' +
+    (near ? '<p class="meta">Найближче: <b>' + esc(cap(byDay[near].l)) + '</b> — ' + esc(byDay[near].t.join(', ')) + '</p>' : '<p class="meta">Усі дати минули</p>') +
+    '<p class="meta">Усього: ' + notes.length + ' ' + plural(notes.length, 'записка', 'записки', 'записок') + ' (' + esc(batchSummary(notes)) + ')' + (ks.length ? ' · ' + shortDate(ks[0]) + ' — ' + shortDate(ks[ks.length - 1]) : '') + '</p>' +
+    '<p class="nm">' + x.names.map(esc).join(', ') + '</p>' +
+    '<p class="meta">' + payText(x) + '</p>' +
+    '<p class="st' + (op.length ? ' open' : '') + '">' + (x.gone ? 'Записки не знайдено' : op.length
+      ? 'Ще можна змінити ' + op.length + ' з ' + notes.length + ' · найближча — до ' + esc(nx.until.slice(11)) + ' (' + esc(nx.dateLabel) + ')'
+      : 'Прийом на всі ці служби закінчився') + '</p>' +
+    '<details class="bl"><summary class="lbl" style="cursor:pointer;margin:6px 0">Усі дати й треби (' + dayKeys.length + ')</summary><p class="meta" style="white-space:pre-line">' +
+    dayKeys.map(function (k) { return (k < today ? '✓ ' : '') + esc(cap(byDay[k].l)) + ' — ' + esc(byDay[k].t.join(', ')); }).join('\n') + '</p></details>' +
+    '<div class="btns">' + (op.length ? '<button data-a="edit">Змінити</button>' : '') + '<button data-a="again" class="pri">Подати ще раз</button></div>';
+  c.querySelector('[data-a=again]').onclick = function () { againBatch(x); };
+  if (c.querySelector('[data-a=edit]')) c.querySelector('[data-a=edit]').onclick = function () { editBatch(c, x); };
+  return c;
+}
+function againBatch(x) {
+  reset(); S.multi = true; S.kind = x.kind;
+  S.mt = (x.trebaIds || []).filter(function (id) { var t = trebaById(id); return t && t.dates.length; });
+  fillNames(x.names.slice()); render(); view('vForm');
+}
+function editBatch(card, x) {
+  var op = openNotes(x);
+  var h = '<h3>Записка на кілька дат · ' + esc(about(x.kind).toLowerCase()) + '</h3><p class="meta">Зміни застосуються до ' + op.length + ' ' + plural(op.length, 'записки', 'записок', 'записок') + ', на які прийом ще триває.</p>' +
+    '<div class="eNames"></div><button class="link eAdd">+ Додати ім’я</button>' +
+    '<p class="hint">Виправити чи прибрати ім’я можна завжди. Додати — лише в межах уже оплаченого (у замовну, де пожертва за кожне ім’я, — не можна).</p>' +
+    '<div class="btns" style="margin-top:10px"><button data-a="cancel">Скасувати</button><button data-a="save" class="pri">Зберегти</button></div><p class="err eErr"></p>';
+  card.innerHTML = h;
+  var box = card.querySelector('.eNames');
+  var add = function (v) {
+    var row = el('div', 'row'), i = el('input'); i.type = 'text'; i.maxLength = 60; i.value = v || ''; i.autocapitalize = 'words';
+    var b = el('button', 'x'); b.type = 'button'; b.textContent = '×';
+    b.onclick = function () { row.parentNode.removeChild(row); };
+    row.appendChild(i); row.appendChild(b); box.appendChild(row);
+  };
+  x.names.forEach(function (n) { add(n); });
+  card.querySelector('.eAdd').onclick = function () { add(''); var ins = box.querySelectorAll('input'); ins[ins.length - 1].focus(); };
+  card.querySelector('[data-a=cancel]').onclick = function () { renderMy(false); };
+  card.querySelector('[data-a=save]').onclick = function () {
+    var v = [].map.call(box.querySelectorAll('input'), function (i) { return i.value.trim(); }).filter(Boolean), e = card.querySelector('.eErr');
+    if (!v.length) { e.textContent = 'Залиште хоча б одне ім’я'; return; }
+    var btn = this; btn.disabled = true; btn.textContent = 'Зберігаємо…';
+    google.script.run.withSuccessHandler(function (r) {
+      btn.disabled = false; btn.textContent = 'Зберегти';
+      if (!r || !r.ok) { e.textContent = (r && r.error) || 'Не вдалося зберегти'; return; }
+      x.names = r.names; saveMy(); renderMy(true);
+    }).withFailureHandler(function () { btn.disabled = false; btn.textContent = 'Зберегти'; e.textContent = 'Немає зв’язку. Спробуйте ще раз.'; })
+      .noteEditMany({ token: x.token, ids: op.map(function (n) { return n.id; }), names: v });
+  };
+}
 function untilText(x) {
   var t = x.until.slice(11), d = x.until.slice(0, 10);
+  if (x.sorInfo && x.sorInfo.next) return 'Можна змінити імена до ' + t + ' (' + x.sorInfo.nextLabel + ') і далі — до останньої літургії сорокоуста';
   return 'Можна змінити до ' + t + (d === x.date ? ' у день служби' : '') + ' (' + x.dateLabel + ')';
 }
 function renderMy(refresh) {
@@ -852,12 +1098,17 @@ function renderMy(refresh) {
   }
   openL.concat(oldL).forEach(function (x, i) {
     var open = isOpen(x, now);
-    var c = el('div', 'card note');
+    if (x.batch) { (open || !oldBox ? box : oldBox).appendChild(batchCard(x, now)); return; }
+    var c = el('div', 'card note'), si = x.sorInfo;
     c.innerHTML = '<h3>' + esc(x.trebaName) + ' · ' + esc(about(x.kind).toLowerCase()) + '</h3>' +
-      '<p class="meta">' + (x.sor ? 'Початок: ' : '') + esc(x.dateLabel) + ' · ' + x.names.length + ' ' + plural(x.names.length, 'ім’я', 'імені', 'імен') + '</p>' +
+      (si ? '<p class="meta">' + (si.next ? 'Найближче поминання: <b>' + esc(cap(si.nextLabel)) + '</b> (' + si.idx + '-те з ' + si.of + ')' : 'Сорокоуст завершено') + '</p>' +
+        '<p class="meta">Період: ' + shortDate(x.date) + ' — ' + (si.last ? shortDate(si.last) : '…') + ' · ' + x.names.length + ' ' + plural(x.names.length, 'ім’я', 'імені', 'імен') + '</p>'
+        : '<p class="meta">' + (x.sor ? 'Початок: ' : '') + esc(x.dateLabel) + ' · ' + x.names.length + ' ' + plural(x.names.length, 'ім’я', 'імені', 'імен') + '</p>') +
       '<p class="nm">' + x.names.map(esc).join(', ') + '</p>' +
       '<p class="meta">' + payText(x) + '</p>' +
       '<p class="st' + (open ? ' open' : '') + '">' + (x.gone ? 'Записку не знайдено' : open ? esc(untilText(x)) : 'Прийом закінчився — змінити вже не можна') + '</p>' +
+      (si && si.dates && si.dates.length ? '<details class="bl"><summary class="lbl" style="cursor:pointer;margin:6px 0">Усі ' + si.dates.length + ' літургій</summary><p class="meta" style="white-space:pre-line">' +
+        si.dates.map(function (d, j) { return (d.k < (si.next || '9999') ? '✓ ' : '') + (j + 1) + '. ' + esc(cap(d.l)); }).join('\n') + '</p></details>' : '') +
       '<div class="btns">' + (open && !x.gone ? '<button data-a="edit">Змінити</button>' : '') + '<button data-a="again" class="pri">Подати ще раз</button></div>';
     c.querySelector('[data-a=again]').onclick = function () { again(x); };
     if (c.querySelector('[data-a=edit]')) c.querySelector('[data-a=edit]').onclick = function () { editNote(c, x); };
@@ -867,32 +1118,49 @@ function renderMy(refresh) {
   if (refresh) refreshMy();
 }
 // посилання на банку Monobank: одразу підставляємо суму та коментар із номером записки
-function jarUrl(sum, id) {
+function jarUrl(sum, id, many) {
   var u = String(CFG.bankUrl || '');
   if (!/^https:\/\/send\.monobank\.ua\/jar\//i.test(u)) return u;
   u = u.split('?')[0].split('#')[0];
   var q = [];
   if (Number(sum) > 0) q.push('a=' + Math.round(Number(sum)));
-  if (id) q.push('t=' + encodeURIComponent('Записка ' + id));
+  if (id) q.push('t=' + encodeURIComponent((many ? 'Записки ' : 'Записка ') + id));
   return q.length ? u + '?' + q.join('&') : u;
 }
 function payText(x) {
   var how = { online: 'онлайн (банка або картка)', cash: 'у церковній лавці', none: 'без пожертви' }[x.pay] || '';
   if (!how) return '';
   if (x.pay === 'none') return 'Без пожертви';
-  return 'Пожертва: ' + how + ' · <b>' + (Number(x.sum) || 0) + ' грн</b>' + (x.pay === 'online' && x.id ? ' · записка ' + esc(x.id) : '') +
-    (x.pay === 'online' && CFG.bankUrl ? ' · <a target="_blank" rel="noopener" style="color:var(--gold)" href="' + esc(jarUrl(x.sum, x.id)) + '">відкрити банку</a>' : '');
+  return 'Пожертва: ' + how + ' · <b>' + (Number(x.sum) || 0) + ' грн</b>' + (x.pay === 'online' && x.id ? (x.batch ? ' · записки ' : ' · записка ') + esc(x.id) : '') +
+    (x.pay === 'online' && CFG.bankUrl ? ' · <a target="_blank" rel="noopener" style="color:var(--gold)" href="' + esc(jarUrl(x.sum, x.id, x.batch)) + '">відкрити банку</a>' : '');
 }
 function refreshMy() {
   // спрашиваем сервер про все записки: время на телефоне может отличаться
-  var list = MY.filter(function (x) { return !x.gone; }).map(function (x) { return { id: x.id, token: x.token }; });
+  var list = [];
+  MY.forEach(function (x) {
+    if (x.batch) (x.notes || []).forEach(function (n) { if (!n.gone) list.push({ id: n.id, token: x.token }); });
+    else if (!x.gone) list.push({ id: x.id, token: x.token });
+  });
   if (!list.length) return;
   google.script.run.withSuccessHandler(function (r) {
     if (!r || !r.ok) return;
     MY.forEach(function (x) {
+      if (x.batch) {
+        (x.notes || []).forEach(function (n) {
+          var st = r.notes[n.id]; if (!st) return;
+          if (!st.exists) { n.gone = true; n.editable = false; return; }
+          n.editable = st.editable; n.limit = st.limit;
+          if (st.date && st.date !== n.date) { n.date = st.date; n.dateLabel = st.dateLabel; }
+          if (st.until) n.until = st.until;
+          if (st.editable) x.names = st.names;
+        });
+        x.gone = (x.notes || []).every(function (n) { return n.gone; });
+        return;
+      }
       var st = r.notes[x.id]; if (!st) return;
       if (!st.exists) { x.gone = true; x.editable = false; return; }
       x.editable = st.editable; x.names = st.names; x.limit = st.limit;
+      if (st.sor) x.sorInfo = st.sor;
       if (st.date && st.date !== x.date) { x.date = st.date; x.dateLabel = st.dateLabel; } // батюшки перенесли службу
       if (st.until) x.until = st.until;
     });
