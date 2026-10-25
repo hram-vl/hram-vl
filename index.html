@@ -1231,17 +1231,29 @@ function esc(s) { return String(s).replace(/[&<>"']/g, function (c) {
 function plural(n, a, b, c) { var m = n % 10, h = n % 100;
   return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; }
 
+// Сайт відкривається одразу з останніх збережених даних (до 12 годин), а свіжі підтягуються у фоні.
+// Подати записку на дату, яка вже закрилася, однаково не вийде — сервер перевіряє.
 function boot() {
   if (CFG) return init();
-  $('loading').classList.remove('hidden'); $('form').classList.add('hidden');
+  var saved = lsGet('zp_cfg', null), started = false;
+  if (saved && saved.cfg && Date.now() - saved.t < 12 * 3600e3) { CFG = saved.cfg; init(); started = true; }
+  else { $('loading').classList.remove('hidden'); $('form').classList.add('hidden'); }
   google.script.run.withSuccessHandler(function (r) {
-    if (!r || !r.ok) { $('loading').innerHTML = 'Не вдалося завантажити. <a href="" style="color:var(--gold)">Оновити</a>'; return; }
-    CFG = r.cfg;
-    $('loading').classList.add('hidden'); $('form').classList.remove('hidden');
-    init();
+    if (!r || !r.ok) { if (!started) $('loading').innerHTML = 'Не вдалося завантажити. <a href="" style="color:var(--gold)">Оновити</a>'; return; }
+    CFG = r.cfg; lsSet('zp_cfg', { t: Date.now(), cfg: r.cfg });
+    if (!started) { $('loading').classList.add('hidden'); $('form').classList.remove('hidden'); init(); return; }
+    freshCfg();
   }).withFailureHandler(function () {
-    $('loading').innerHTML = 'Немає зв’язку. <a href="" style="color:var(--gold)">Оновити</a>';
+    if (!started) $('loading').innerHTML = 'Немає зв’язку. <a href="" style="color:var(--gold)">Оновити</a>';
   }).publicConfig();
+}
+// свіжі дані прийшли, коли сторінка вже показана: тихо перемальовуємо, не чіпаючи введені імена
+function freshCfg() {
+  $('temple').textContent = CFG.temple;
+  if (S && S.t >= CFG.trebas.length) S.t = 0;
+  if (!CFG.bankUrl && !CFG.card) $('pays').children[0].classList.add('hidden'); else $('pays').children[0].classList.remove('hidden');
+  if (S && !S.busy && !$('form').classList.contains('hidden')) render();
+  if (!$('vSched').classList.contains('hidden')) renderSched();
 }
 
 boot();
