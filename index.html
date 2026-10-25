@@ -605,10 +605,11 @@ function renderMulti() {
     b.onclick = function () { S.kind = k; render(); clearErr(); };
     kb.appendChild(b);
   });
-  var noFree = CFG.allowFree === false || S.mt.some(function (id) { return trebaById(id).noFree; });
-  $('pays').children[2].classList.toggle('hidden', !!noFree);
-  if (noFree && S.pay === 'none') S.pay = '';
-  $('softNote').textContent = 'Пожертву можна внести однією сумою за всі записки.';
+  // на кілька дат — лише з пожертвою; без пожертви можна подати звичайну записку на одну дату
+  $('pays').children[2].classList.add('hidden');
+  if (S.pay === 'none') S.pay = '';
+  $('softNote').textContent = 'На кілька дат записки подаються з пожертвою — однією сумою за всі.' +
+    (CFG.allowFree === false ? '' : ' Без пожертви можна подати записку на одну требу й дату: «Одна записка» вгорі.');
   $('svcBox').classList.add('hidden');
   renderMultiDates(); renderPays(); calc();
 }
@@ -617,7 +618,7 @@ function kindsOfMulti() {
   S.mt.forEach(function (id) { var t = trebaById(id); ks = ks.filter(function (k) { return t.kinds.indexOf(k) >= 0; }); });
   return ks;
 }
-var PERIODS = [['14', '2 тижні'], ['31', 'Місяць'], ['92', '3 місяці'], ['all', 'Усі дати']];
+var PERIODS = [['7', 'Тиждень'], ['14', '2 тижні'], ['31', 'Місяць']];
 function renderMultiDates() {
   var md = multiDates(), box = $('dates'), q = $('quick');
   // прибираємо дати, яких уже немає серед обраних треб
@@ -635,7 +636,7 @@ function renderMultiDates() {
       if (p[0] !== 'none') {
         var to = p[0] === 'all' ? '9999' : addDaysKey(md.length ? todayKey() : '', Number(p[0]));
         md.forEach(function (x) { if (x.d.key <= to) S.md[x.d.key] = 1; });
-        if (p[0] !== '14') S.showAll = true;
+        if (p[0] === '31') S.showAll = true;
       } else S.per = '';
       renderMultiDates(); calc(); clearErr();
     };
