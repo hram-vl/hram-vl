@@ -158,6 +158,7 @@
   .note .meta { font-size: 14px; color: var(--muted); margin-bottom: 16px; }
   .note ol { list-style: none; padding: 0; margin: 0; font-family: "Old Standard TT", Georgia, serif; }
   .note li { padding: 3px 0; line-height: 1.3; }
+  .note li.ns { border-top: 1px dashed rgba(138, 122, 102, .35); margin-top: 4px; padding-top: 7px; }
   .note .sec { font: 600 13px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: var(--cin); text-transform: uppercase; letter-spacing: .06em;
     margin: 14px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
   .note .del { border: none; background: none; color: var(--muted); font: 22px/1 -apple-system, Arial, sans-serif; padding: 0 0 0 10px; cursor: pointer; vertical-align: middle; opacity: .6; }
@@ -246,6 +247,7 @@
     body { background: #fff; } .tabs, .ntools, .back, .noprint { display: none !important; }
     .wrap { padding: 0; max-width: none; } .note { border: none; background: #fff; color: #000; }
     .note .cr, .note .kind { color: #a32a1b; }
+    .note li.ns { border-top: 1px dashed #d4cdbf; }
   }
 </style>
 </head>
@@ -635,15 +637,18 @@ function showGroups(r) {
 function showNote(g, r) {
   A.cur = { g: g, r: r };
   var paid = g.names.filter(function (x) { return !x.free; }), free = g.names.filter(function (x) { return x.free; });
-  var li = function (x) {
-    return '<li><span class="nmx">' + esc(x.n) + '</span>' + (x.tag ? '<span class="tag">' + esc(x.tag) + '</span>' : '') +
+  var prevG = null;
+  var li = function (x, i) {
+    var ns = i > 0 && x.g !== prevG;
+    prevG = x.g;
+    return '<li' + (ns ? ' class="ns"' : '') + '><span class="nmx">' + esc(x.n) + '</span>' + (x.tag ? '<span class="tag">' + esc(x.tag) + '</span>' : '') +
       (x.cnt > 1 ? '<span class="tag noprint">на ' + x.cnt + ' ' + plural(x.cnt, 'дату', 'дати', 'дат') + '</span>' : '') +
       '<button class="del noprint" data-uid="' + esc(x.uid) + '" aria-label="Прибрати ' + esc(x.n) + '">×</button></li>';
   };
   var h = '<div class="cr">' + CROSS + '</div><div class="kind">' + esc(about(g.kind)) + '</div>' +
     '<div class="meta">' + esc(g.treba) + ' · ' + esc(r.label) + ' · ' + g.names.length + ' ' + plural(g.names.length, 'ім’я', 'імені', 'імен') + '</div>';
-  if (paid.length) h += '<div class="sec">З пожертвою · ' + paid.length + '</div><ol>' + paid.map(li).join('') + '</ol>';
-  if (free.length) h += '<div class="sec">Без пожертви · ' + free.length + '</div><ol>' + free.map(li).join('') + '</ol>';
+  if (paid.length) { prevG = null; h += '<div class="sec">З пожертвою · ' + paid.length + '</div><ol>' + paid.map(li).join('') + '</ol>'; }
+  if (free.length) { prevG = null; h += '<div class="sec">Без пожертви · ' + free.length + '</div><ol>' + free.map(li).join('') + '</ol>'; }
   if (!g.names.length) h += '<p class="meta">Усі імена прибрано.</p>';
   if (g.hidden && g.hidden.length) {
     h += '<details class="hid noprint"><summary>Прибрані імена · ' + g.hidden.length + '</summary><ul>' +
@@ -690,7 +695,7 @@ $('printBtn').onclick = function () {
     { t: 'sub', s: g.treba + ' · ' + r.label + ' · ' + g.names.length + ' ' + plural(g.names.length, 'ім’я', 'імені', 'імен'), c: 'center' }];
   var paid = g.names.filter(function (x) { return !x.free; }), free = g.names.filter(function (x) { return x.free; });
   var two = g.names.length > 16;   // довгий список — у дві колонки, щоб менше паперу
-  var put = function (arr) { B.push({ t: 'names', two: two, items: arr.map(function (x, i) { return { n: (i + 1) + '.', s: x.n, tag: x.tag || '' }; }) }); };
+  var put = function (arr) { B.push({ t: 'names', two: two, items: arr.map(function (x, i) { return { n: (i + 1) + '.', s: x.n, tag: x.tag || '', g: x.g }; }) }); };
   if (paid.length) { B.push({ t: 'sec', s: 'З пожертвою · ' + paid.length }); put(paid); }
   if (free.length) { B.push({ t: 'sec', s: 'Без пожертви · ' + free.length }); put(free); }
   doPrint(B, 'zapyska');
@@ -753,6 +758,10 @@ function drawPages(B) {
         var chunk = b.items.slice(k, k + per), inCol = b.two ? Math.ceil(chunk.length / 2) : chunk.length;
         chunk.forEach(function (it, j) {
           var cx = M + (j >= inCol ? colW : 0), cy = y + (j % inCol) * LH;
+          if (j % inCol && chunk[j - 1].g !== it.g) {          // між записками від різних прихожан — бліда пунктирна лінія
+            x.save(); x.setLineDash([10, 10]); x.strokeStyle = '#d4cdbf'; x.lineWidth = 2; x.beginPath();
+            x.moveTo(cx + 88, cy + 1); x.lineTo(cx + colW - 30, cy + 1); x.stroke(); x.restore();
+          }
           x.textAlign = 'right'; x.fillStyle = '#888'; x.font = '30px ' + SANS; x.fillText(it.n, cx + 70, cy + 46);
           x.textAlign = 'left'; x.fillStyle = '#111'; x.font = '44px ' + SERIF;
           var nm = fit(it.s, colW - 110 - (it.tag ? 120 : 0)); x.fillText(nm, cx + 88, cy + 46);
