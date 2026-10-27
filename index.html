@@ -73,10 +73,13 @@
   .copy button { flex: 0 0 auto; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card);
     color: var(--text); font: inherit; cursor: pointer; }
   .closed { text-align: center; color: var(--muted); }
-  .seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; background: var(--card); border: 1px solid var(--line);
+  .seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; background: var(--card); border: 1px solid var(--line);
     border-radius: 12px; padding: 4px; margin: 0 0 14px; }
   .seg button { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; line-height: 1.2; padding: 9px 1px; border-radius: 9px; cursor: pointer; }
   .seg button.on { background: var(--gold-bg); color: var(--text); }
+  .sub { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 12px; border-bottom: 1px solid var(--line); }
+  .sub button { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 15px; padding: 10px 4px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+  .sub button.on { color: var(--text); border-bottom-color: var(--gold); font-weight: 600; }
   .seg .cnt { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--red); color: var(--on-red); font-size: 12px; line-height: 20px; margin-left: 4px; }
   .pchips { display: flex; flex-wrap: wrap; gap: 6px; }
   .pchip { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 99px; padding: 7px 12px; font: inherit; font-size: 15px; cursor: pointer; }
@@ -194,8 +197,7 @@
   <nav class="seg" id="seg">
     <button data-v="vForm" class="on">Записка</button>
     <button data-v="vSched">Розклад</button>
-    <button data-v="vPom">Помянник</button>
-    <button data-v="vMy">Мої записки<span class="cnt hidden" id="myCnt"></span></button>
+    <button data-v="vCab">Кабінет<span class="cnt hidden" id="myCnt"></span></button>
   </nav>
 
   <section id="vForm">
@@ -279,9 +281,16 @@
     <p class="hint" style="text-align:center">Щоб подати записку на службу, торкніться її — служби з позначкою <span style="color:var(--orn)">✎</span>.<br>Свята й пам’ять святих — за календарем <a href="https://blagovist.info" target="_blank" rel="noopener" style="color:var(--orn)">blagovist.info</a>.</p>
   </section>
 
-  <section id="vPom" class="hidden">
+  <section id="vCab" class="hidden">
+    <div id="accBox"></div>
+    <nav class="sub" id="sub">
+      <button data-v="vMy" class="on">Мої записки</button>
+      <button data-v="vPom">Помянник</button>
+    </nav>
+  <div id="vPom" class="hidden">
+    <div class="card" id="pomAcc"></div>
     <div class="card">
-      <p class="soft" style="margin:0">Ваш помянник зберігається лише на цьому телефоні. Позначте потрібні імена (або нічого — тоді підуть усі) і оберіть требу. Імена за здоров’я потрапляють лише в записки за здоров’я, за упокій — лише за упокій.</p>
+      <p class="soft" style="margin:0">Позначте потрібні імена (або нічого — тоді підуть усі) і оберіть требу. Імена за здоров’я потрапляють лише в записки за здоров’я, за упокій — лише за упокій.</p>
     </div>
     <div class="card" data-k="z">
       <p class="lbl">За здоров’я</p>
@@ -298,13 +307,12 @@
       <div class="pgo hidden"><p class="lbl"></p><div class="grid"></div></div>
     </div>
     <p class="hint">Імена — у родовому відмінку, як у записці.</p>
-    <p class="hint" id="pomAcc"></p>
-  </section>
+  </div>
 
-  <section id="vMy" class="hidden">
-    <div id="accBox"></div>
-    <p class="soft" id="myIntro">Записки, подані з цього телефона. Змінити імена можна до кінця прийому записок на цю службу.</p>
+  <div id="vMy">
+    <p class="soft" id="myIntro"></p>
     <div id="myList"></div>
+  </div>
   </section>
 </div>
 
@@ -346,6 +354,9 @@ function init() {
   $('doneAcc').onclick = function () { view('vMy'); };
   $('savePom').onclick = saveDoneToPom;
   [].forEach.call(document.querySelectorAll('#seg button'), function (b) {
+    b.onclick = function () { view(b.getAttribute('data-v')); };
+  });
+  [].forEach.call(document.querySelectorAll('#sub button'), function (b) {
     b.onclick = function () { view(b.getAttribute('data-v')); };
   });
   initPom();
@@ -764,14 +775,28 @@ function kyivNow() {
 }
 function same(a, b) { return a.trim().toLowerCase() === b.trim().toLowerCase(); }
 
+var CAB = 'vMy';   // який підрозділ кабінету відкритий
 function view(v) {
-  ['vForm', 'vSched', 'vPom', 'vMy'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
+  // «vMy» і «vPom» — підрозділи кабінету
+  if (v === 'vMy' || v === 'vPom') { CAB = v; v = 'vCab'; }
+  ['vForm', 'vSched', 'vCab'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
   [].forEach.call(document.querySelectorAll('#seg button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
-  if (v === 'vPom') { renderPom(); $('pomAcc').innerHTML = ACC ? '☁️ Помянник збережено у вашому акаунті Telegram — він однаковий на всіх пристроях.' : (CFG.pbot ? 'Щоб помянник не губився й був на всіх пристроях — підключіть Telegram у розділі «Мої записки».' : ''); }
+  if (v === 'vCab') {
+    if (!ACC_T) renderAcc();      // не скидаємо очікування підключення, якщо людина перейшла між підрозділами
+    ['vMy', 'vPom'].forEach(function (x) { $(x).classList.toggle('hidden', x !== CAB); });
+    [].forEach.call(document.querySelectorAll('#sub button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === CAB); });
+    if (CAB === 'vPom') { renderPom(); renderPomAcc(); } else renderMy(true);
+  }
   if (v === 'vSched') renderSched();
-  if (v === 'vMy') renderMy(true);
   if (v === 'vForm') renderPomPick();
   window.scrollTo(0, 0);
+}
+// плашка в помяннику: де зберігаються імена
+function renderPomAcc() {
+  var c = $('pomAcc');
+  if (ACC) { c.innerHTML = '<p class="soft" style="margin:0">☁️ <b>Помянник збережено у вашому акаунті Telegram.</b> Він однаковий на всіх ваших пристроях і не загубиться, якщо змінити телефон чи очистити браузер.</p>'; return; }
+  c.innerHTML = '<p class="soft" style="margin:0">📱 Зараз помянник зберігається <b>лише в пам’яті цього телефона</b> — якщо очистити браузер чи змінити телефон, імена зникнуть.</p>' +
+    (CFG.pbot ? '<p class="soft" style="margin:8px 0 0">Натисніть <b>«Підключити Telegram»</b> вище — і помянник та записки збережуться в акаунті, а ще бот нагадуватиме про служби.</p>' : '');
 }
 
 /* ── розмір шрифту ── */
@@ -1126,7 +1151,7 @@ function untilText(x) {
 }
 function renderMy(refresh) {
   var box = $('myList'), now = kyivNow();
-  if (refresh) renderAcc();
+  $('myIntro').textContent = ACC ? 'Записки з вашого акаунта — на будь-якому пристрої. Змінити імена можна до кінця прийому записок на цю службу.' : 'Записки, подані з цього телефона. Змінити імена можна до кінця прийому записок на цю службу.';
   if (!MY.length) { box.innerHTML = '<div class="card"><p class="soft" style="margin:0">Тут з’являться записки, які ви подасте' + (ACC ? '' : ' з цього телефона') + '.</p></div>'; return; }
   box.innerHTML = '';
   // зверху — записки, які ще можна змінити; подані раніше — згорнуті нижче, щоб не накопичувались
@@ -1299,8 +1324,8 @@ function freshCfg() {
 
 /* ── акаунт через Telegram: записки на всіх пристроях і нагадування ── */
 var ACC = lsGet('zp_acc', null), ACC_T = null;
-function accHint() { $('doneAcc').classList.toggle('hidden', !!ACC || !CFG.pbot); }
-function accReset() { ACC = null; try { ['zp_acc', 'zp_pom_s', 'zp_pom_dirty'].forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {} }
+function accHint() { $('doneAcc').classList.toggle('hidden', !!ACC || !CFG.pbot); if (!$('vPom').classList.contains('hidden')) renderPomAcc(); }
+function accReset() { ACC = null; try { ['zp_acc', 'zp_pom_s', 'zp_pom_dirty', 'zp_claimed'].forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {} }
 function renderAcc() {
   var box = $('accBox');
   if (ACC_T) { clearInterval(ACC_T); ACC_T = null; }
@@ -1358,6 +1383,21 @@ function accStart() {
 }
 // записки акаунта з таблиці — до тих, що збережені на цьому телефоні
 function syncAcc() {
+  if (!ACC) return;
+  // спершу прив’язуємо до акаунта записки, подані до підключення (в т.ч. ті, що ще можна змінити)
+  var mine = [];
+  MY.forEach(function (x) {
+    if (x.batch) (x.notes || []).forEach(function (n) { if (!n.gone) mine.push({ id: n.id, token: x.token }); });
+    else if (!x.gone && x.id) mine.push({ id: x.id, token: x.token });
+  });
+  var claimed = lsGet('zp_claimed', {}), fresh = mine.filter(function (m) { return !claimed[m.id + '|' + m.token]; });
+  if (!fresh.length) return pullAcc();
+  google.script.run.withSuccessHandler(function (r) {
+    if (r && r.ok && !r.gone) { fresh.forEach(function (m) { claimed[m.id + '|' + m.token] = 1; }); lsSet('zp_claimed', claimed); }
+    pullAcc();
+  }).withFailureHandler(pullAcc).accClaim(ACC.token, fresh);
+}
+function pullAcc() {
   if (!ACC) return;
   google.script.run.withSuccessHandler(function (r) {
     if (!r || !r.ok) return;
