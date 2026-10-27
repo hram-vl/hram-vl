@@ -407,6 +407,11 @@
             <p class="legend" style="margin:0 0 10px">Коли закінчується прийом записок на службу, бот надсилає в групу духовенства PDF записок — як для друку.</p>
             <div id="tgState"></div>
           </div>
+          <div id="pbBox" class="tgbox">
+            <p class="lbl" style="margin:0 0 6px">🔔 Бот для прихожан</p>
+            <p class="legend" style="margin:0 0 10px">Окремий бот: прихожани підключають його кнопкою на сайті, отримують нагадування про служби за годину до початку, а їхні записки зберігаються в акаунті.</p>
+            <div id="pbState"></div>
+          </div>
         </div>
       </div>
       <div class="card" style="text-align:center;margin-top:14px">
@@ -632,6 +637,7 @@ function showNote(g, r) {
   var paid = g.names.filter(function (x) { return !x.free; }), free = g.names.filter(function (x) { return x.free; });
   var li = function (x) {
     return '<li><span class="nmx">' + esc(x.n) + '</span>' + (x.tag ? '<span class="tag">' + esc(x.tag) + '</span>' : '') +
+      (x.cnt > 1 ? '<span class="tag noprint">на ' + x.cnt + ' ' + plural(x.cnt, 'дату', 'дати', 'дат') + '</span>' : '') +
       '<button class="del noprint" data-uid="' + esc(x.uid) + '" aria-label="Прибрати ' + esc(x.n) + '">×</button></li>';
   };
   var h = '<div class="cr">' + CROSS + '</div><div class="kind">' + esc(about(g.kind)) + '</div>' +
@@ -660,8 +666,8 @@ function hideName(uid, hide) {
   var g = A.cur.g, from = hide ? g.names : g.hidden, to = hide ? g.hidden : g.names;
   var x = from.filter(function (y) { return y.uid === uid; })[0];
   if (!x) return;
-  if (hide && !confirm('Прибрати «' + x.n + '» зі списку?' + (x.tag ? '\n\nЦе сорокоуст — ім’я буде прибрано з усіх наступних поминань.' : ''))) return;
-  call('clergyHide', [A.pin, uid, hide, x.n], function (res) {
+  if (hide && !confirm('Прибрати «' + x.n + '» зі списку?' + (x.cnt > 1 ? '\n\nЦе записка на ' + x.cnt + ' дат — ім’я буде прибрано в усіх цих датах.' : '') + (x.tag ? '\n\nЦе сорокоуст — ім’я буде прибрано з усіх наступних поминань.' : ''))) return;
+  call('clergyHide', [A.pin, uid, hide, x.n, A.cur.r.range ? { from: A.cur.r.from, to: A.cur.r.to } : false], function (res) {
     if (!res.ok) alert(res.error || 'Помилка');
     // після зміни перечитуємо список із таблиці — показуємо те, що там насправді
     var y = window.scrollY, r0 = A.cur.r;
@@ -1192,6 +1198,42 @@ function tgLoad() {
   if (A.rectorSet && !A.rpin) return;
   $('tgState').innerHTML = '<p class="legend">Завантаження…</p>';
   call('clergyTg', [A.pin, A.rpin], tgDraw);
+  call('clergyPBot', [A.pin, A.rpin, {}], pbDraw);
+}
+/* ── бот для прихожан ── */
+function pbDraw(r) {
+  var box = $('pbState');
+  if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.error || 'Помилка') + '</p>'; return; }
+  var h = '';
+  if (!r.hasToken) {
+    h += '<ol><li>У <b>@BotFather</b> створіть <b>ще одного</b> бота (/newbot) — не того, що для духовенства.</li><li>Вставте його токен нижче.</li></ol>' +
+      '<div class="fld"><label>Токен бота для прихожан</label><input type="password" id="pbToken" autocomplete="off" placeholder="123456789:AA…"></div>' +
+      '<button class="btn" id="pbSave" style="width:100%">Підключити</button>';
+  } else {
+    h += '<p class="st">Бот: <b>@' + esc(r.user) + '</b>' + (r.on ? ' · підключених прихожан: <b>' + r.accounts + '</b>' : '') + '</p>' +
+      '<label class="chk"><input type="checkbox" id="pbOn"' + (r.on ? ' checked' : '') + '><span>Прихожани можуть підключати Telegram і отримувати нагадування</span></label>' +
+      (r.on && !r.trigger ? '<p class="warn" style="margin-top:8px">Не вдалося запустити перевірку нагадувань. Відкрийте Apps Script, оберіть функцію <b>setupTelegram</b> і натисніть ▶ (один раз), потім вимкніть і знову увімкніть цей пункт.</p>' : '') +
+      '<p class="legend" style="margin:8px 0 0">Нагадування за замовчуванням — недільні й святкові Літургії. Кожен прихожанин сам обирає інші служби в боті (/menu).</p>' +
+      '<button class="link" id="pbChange" style="color:var(--muted);font-size:14px">Змінити бота</button>';
+  }
+  h += '<p class="err" id="pbErr"></p>';
+  box.innerHTML = h;
+  var err = function (t) { $('pbErr').textContent = t || ''; };
+  if ($('pbSave')) $('pbSave').onclick = function () {
+    err(''); $('pbSave').disabled = true; $('pbSave').textContent = 'Перевіряємо…';
+    call('clergyPBot', [A.pin, A.rpin, { token: $('pbToken').value, on: true, api: apiUrl() }], function (t) {
+      if (!t.ok) { $('pbSave').disabled = false; $('pbSave').textContent = 'Підключити'; return err(t.error); }
+      pbDraw(t);
+    });
+  };
+  if ($('pbOn')) $('pbOn').onchange = function () {
+    err(''); $('pbOn').disabled = true;
+    call('clergyPBot', [A.pin, A.rpin, { on: $('pbOn').checked, api: apiUrl() }], function (t) {
+      if (!t.ok) { $('pbOn').disabled = false; $('pbOn').checked = !$('pbOn').checked; return err(t.error); }
+      pbDraw(t);
+    });
+  };
+  if ($('pbChange')) $('pbChange').onclick = function () { pbDraw({ ok: true, hasToken: false }); };
 }
 /* адреса скрипта (…/exec) — на неї Telegram надсилатиме повідомлення боту */
 function apiUrl() { return typeof API_URL !== 'undefined' ? API_URL : ''; }

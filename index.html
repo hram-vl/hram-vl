@@ -108,10 +108,9 @@
   .note { padding: 14px 16px; }
   /* розмір шрифту */
   header { position: relative; }
-  .fs { width: max-content; margin: -8px 0 6px auto; display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
-  .fs button { border: none; background: none; color: var(--muted); width: 34px; height: 34px; padding: 0; cursor: pointer; font-family: "Old Standard TT", Georgia, serif; line-height: 1; }
-  .fs button + button { border-left: 1px solid var(--line); }
-  .fs button.on { background: var(--gold-bg); color: var(--text); }
+  .fsbtn { display: flex; align-items: center; gap: 8px; margin: -8px 0 6px auto; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 22px; background: var(--card); color: var(--text); font: inherit; font-size: 15px; cursor: pointer; }
+  .fsbtn b { font-family: "Old Standard TT", Georgia, serif; font-size: 20px; color: var(--gold); }
+  .fsbtn[aria-pressed=true] { background: var(--gold-bg); border-color: var(--gold); }
   /* розклад */
   :root { --parch1: #fffbf2; --parch2: #f7eedb; --orn: #b88a3e; }
   @media (prefers-color-scheme: dark) { :root { --parch1: #2a231b; --parch2: #221c15; --orn: #c9a061; } }
@@ -176,6 +175,7 @@
   .note .st.open { color: var(--ok); }
   .btns { display: flex; gap: 8px; }
   .btns button { flex: 1; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); font: inherit; font-size: 15px; cursor: pointer; }
+  a.btnlink { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); font-size: 15px; text-decoration: none; }
   .btns button.pri { background: var(--red); border-color: var(--red); color: var(--on-red); }
   .ok { color: var(--ok); font-size: 14px; text-align: center; margin: 8px 0 0; }
   .hidden { display: none !important; }
@@ -185,11 +185,7 @@
 <div class="wrap">
   <p id="loading" style="text-align:center;color:var(--muted);margin-top:40vh" class="hidden">Завантаження…</p>
   <header>
-    <div class="fs" id="fs" role="group" aria-label="Розмір шрифту">
-      <button type="button" data-z="1" style="font-size:14px" aria-label="Звичайний шрифт">А</button>
-      <button type="button" data-z="1.15" style="font-size:18px" aria-label="Більший шрифт">А</button>
-      <button type="button" data-z="1.3" style="font-size:22px" aria-label="Найбільший шрифт">А</button>
-    </div>
+    <button type="button" class="fsbtn" id="fs" aria-pressed="false" aria-label="Великий шрифт"><b>Аа</b> <span id="fsTxt">Великий шрифт</span></button>
     <div class="cross"><svg class="crs" viewBox="0 0 40 60" aria-hidden="true"><g fill="currentColor"><rect x="17" y="0" width="6" height="60" rx="1.5"/><rect x="10" y="9" width="20" height="5" rx="1.5"/><rect x="3" y="20" width="34" height="6" rx="1.5"/><rect x="9" y="42" width="22" height="5" rx="1.5" transform="rotate(20 20 44.5)"/></g></svg></div>
     <h1 id="temple">Храм</h1>
     <p>Подати записку</p>
@@ -266,6 +262,7 @@
     <button class="main ghost" id="savePom" style="margin-top:14px">Зберегти імена в помянник</button>
     <button class="main ghost" id="again" style="margin-top:8px">Подати ще записку</button>
     <p class="hint" style="margin-top:12px">Записку можна змінити до кінця прийому — у розділі «Мої записки».</p>
+    <button class="link hidden" id="doneAcc" style="margin-top:6px">🔔 Підключити Telegram: нагадування про служби й записки на всіх пристроях</button>
   </div>
   </section>
 
@@ -301,10 +298,12 @@
       <div class="pgo hidden"><p class="lbl"></p><div class="grid"></div></div>
     </div>
     <p class="hint">Імена — у родовому відмінку, як у записці.</p>
+    <p class="hint" id="pomAcc"></p>
   </section>
 
   <section id="vMy" class="hidden">
-    <p class="soft">Записки, подані з цього телефона. Змінити імена можна до кінця прийому записок на цю службу.</p>
+    <div id="accBox"></div>
+    <p class="soft" id="myIntro">Записки, подані з цього телефона. Змінити імена можна до кінця прийому записок на цю службу.</p>
     <div id="myList"></div>
   </section>
 </div>
@@ -344,6 +343,7 @@ function init() {
     b.onclick = function () { S.multi = b.getAttribute('data-m') === '1'; S.showAll = false; render(); clearErr(); };
   });
   $('again').onclick = reset;
+  $('doneAcc').onclick = function () { view('vMy'); };
   $('savePom').onclick = saveDoneToPom;
   [].forEach.call(document.querySelectorAll('#seg button'), function (b) {
     b.onclick = function () { view(b.getAttribute('data-v')); };
@@ -353,7 +353,7 @@ function init() {
   $('sPrev').onclick = function () { SW--; renderSched(); };
   $('sNext').onclick = function () { SW++; renderSched(); };
   updateMyCnt();
-  if (MY.length) refreshMy(); // уточнюємо стан записок (дати, сорокоусти) — щоб позначка на вкладці була точною
+  if (ACC) { syncAcc(); syncPom(); } else if (MY.length) refreshMy(); // уточнюємо стан записок (дати, сорокоусти) — щоб позначка на вкладці була точною
   if (!CFG.bankUrl && !CFG.card) $('pays').children[0].classList.add('hidden');
   reset();
 }
@@ -539,7 +539,7 @@ function submit() {
   var wait = 1100 - (Date.now() - FORM_T0);
   if (wait > 0) { S.busy = true; $('go').disabled = true; $('go').textContent = 'Надсилаємо…'; setTimeout(function () { S.busy = false; submit(); }, wait); return; }
   var payload = { treba: treba().id, kind: S.kind, date: S.date, names: names(), pay: S.pay, svc: treba().other ? S.svc : '',
-    hp: ($('hpf') && $('hpf').value) || '', ms: Date.now() - FORM_T0 };
+    hp: ($('hpf') && $('hpf').value) || '', ms: Date.now() - FORM_T0, acc: ACC ? ACC.token : '' };
   S.busy = true; $('go').disabled = true; $('go').textContent = 'Надсилаємо…';
   var done = function (r) {
     S.busy = false; $('go').disabled = false; $('go').textContent = 'Подати записку';
@@ -674,7 +674,7 @@ function submitMulti() {
   if (!S.pay) return err('Оберіть варіант пожертви');
   var wait = 1100 - (Date.now() - FORM_T0);
   if (wait > 0) { S.busy = true; $('go').disabled = true; $('go').textContent = 'Надсилаємо…'; setTimeout(function () { S.busy = false; submit(); }, wait); return; }
-  var payload = { kind: S.kind, items: items, names: names(), pay: S.pay, hp: ($('hpf') && $('hpf').value) || '', ms: Date.now() - FORM_T0 };
+  var payload = { kind: S.kind, items: items, names: names(), pay: S.pay, hp: ($('hpf') && $('hpf').value) || '', ms: Date.now() - FORM_T0, acc: ACC ? ACC.token : '' };
   S.busy = true; $('go').disabled = true; $('go').textContent = 'Надсилаємо…';
   var done = function (r) {
     S.busy = false; $('go').disabled = false; $('go').textContent = 'Подати записки';
@@ -698,7 +698,7 @@ function showDoneBatch(r, p) {
     trebaIds: S.mt.slice(), notes: r.notes });
   saveMy();
   $('savePom').textContent = 'Зберегти імена в помянник'; $('savePom').disabled = false;
-  $('form').classList.add('hidden'); $('done').classList.remove('hidden');
+  $('form').classList.add('hidden'); $('done').classList.remove('hidden'); accHint();
   var ks = r.notes.map(function (n) { return n.date; });
   $('doneText').innerHTML = 'Записок: <b>' + r.notes.length + '</b> · ' + esc(about(p.kind).toLowerCase()) + '<br>' + esc(batchSummary(r.notes)) +
     '<br>' + (ks.length ? 'з ' + shortDate(ks[0]) + ' по ' + shortDate(ks[ks.length - 1]) : '') + ' · ' + r.count + ' ' + plural(r.count, 'ім’я', 'імені', 'імен') + ' у кожній';
@@ -730,7 +730,7 @@ function showDone(r, p) {
   S.last = { names: r.names || p.names, kind: p.kind };
   rememberNote(r, p);
   $('savePom').textContent = 'Зберегти імена в помянник'; $('savePom').disabled = false;
-  $('form').classList.add('hidden'); $('done').classList.remove('hidden');
+  $('form').classList.add('hidden'); $('done').classList.remove('hidden'); accHint();
   $('doneText').innerHTML = esc(r.trebaName || treba().name) + ' · ' + esc(about(p.kind).toLowerCase()) + '<br>' +
     (r.sorCount ? 'Початок: ' + esc(r.dateLabel) + '<br>' + r.sorCount + ' літургій' + (r.sorEnd ? ', останнє поминання орієнтовно: ' + esc(r.sorEnd) : '') : esc(r.dateLabel)) +
     '<br>' + r.count + ' ' + plural(r.count, 'ім’я', 'імені', 'імен');
@@ -767,7 +767,7 @@ function same(a, b) { return a.trim().toLowerCase() === b.trim().toLowerCase(); 
 function view(v) {
   ['vForm', 'vSched', 'vPom', 'vMy'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
   [].forEach.call(document.querySelectorAll('#seg button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
-  if (v === 'vPom') renderPom();
+  if (v === 'vPom') { renderPom(); $('pomAcc').innerHTML = ACC ? '☁️ Помянник збережено у вашому акаунті Telegram — він однаковий на всіх пристроях.' : (CFG.pbot ? 'Щоб помянник не губився й був на всіх пристроях — підключіть Telegram у розділі «Мої записки».' : ''); }
   if (v === 'vSched') renderSched();
   if (v === 'vMy') renderMy(true);
   if (v === 'vForm') renderPomPick();
@@ -776,14 +776,14 @@ function view(v) {
 
 /* ── розмір шрифту ── */
 function initFs() {
-  var z = Number(lsGet('zp_zoom', 1)) || 1;
+  // одна кнопка для слабозорих: звичайний ⇄ великий шрифт (запам’ятовується; старі налаштування >1 вважаємо «великим»)
+  var big = (Number(lsGet('zp_zoom', 1)) || 1) > 1;
   var apply = function () {
-    document.querySelector('.wrap').style.zoom = z;
-    [].forEach.call(document.querySelectorAll('#fs button'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-z')) === z); });
+    document.querySelector('.wrap').style.zoom = big ? 1.3 : 1;
+    $('fs').setAttribute('aria-pressed', big ? 'true' : 'false');
+    $('fsTxt').textContent = big ? 'Звичайний шрифт' : 'Великий шрифт';
   };
-  [].forEach.call(document.querySelectorAll('#fs button'), function (b) {
-    b.onclick = function () { z = Number(b.getAttribute('data-z')); lsSet('zp_zoom', z); apply(); };
-  });
+  $('fs').onclick = function () { big = !big; lsSet('zp_zoom', big ? 1.3 : 1); apply(); };
   apply();
 }
 
@@ -875,7 +875,47 @@ function pk(kind) { return kind === 'упокій' ? 'u' : 'z'; }
 function pomAdd(k, n) {
   n = String(n || '').replace(/\s+/g, ' ').trim().slice(0, 60);
   if (!n) return false;
-  POM[k].push(n); lsSet('zp_pom', POM); return true;
+  POM[k].push(n); pomSave(); return true;
+}
+// помянник: зберігається на телефоні, а з підключеним Telegram — ще й в акаунті (на всіх пристроях)
+var POM_PUSH = null;
+function pomSave() {
+  lsSet('zp_pom', POM); lsSet('zp_pom_dirty', 1);
+  if (!ACC) return;
+  clearTimeout(POM_PUSH); POM_PUSH = setTimeout(pomPush, 1500);
+}
+function pomPush() {
+  if (!ACC) return;
+  var snap = JSON.stringify(POM);
+  google.script.run.withSuccessHandler(function (r) {
+    if (!r || !r.ok) return;
+    if (r.gone) { accReset(); renderAcc(); accHint(); return; }
+    lsSet('zp_pom_s', r.t);
+    if (JSON.stringify(POM) === snap) lsSet('zp_pom_dirty', 0); else pomSave();   // за час запиту ще змінили
+  }).accPomSet(ACC.token, POM);
+}
+// об’єднання двох помянників: імена не губимо, однакові — по більшій кількості
+function pomUnion(a, b) {
+  var out = [], left = (b || []).slice();
+  (a || []).forEach(function (n) { out.push(n); var i = left.findIndex(function (x) { return same(x, n); }); if (i >= 0) left.splice(i, 1); });
+  return out.concat(left).slice(0, 250);
+}
+function syncPom() {
+  if (!ACC) return;
+  google.script.run.withSuccessHandler(function (r) {
+    if (!r || !r.ok) return;
+    if (r.gone) { accReset(); renderAcc(); accHint(); return; }
+    var s = lsGet('zp_pom_s', null), dirty = !!lsGet('zp_pom_dirty', 0), srv = { z: r.z || [], u: r.u || [] };
+    if (s === null) {                                  // перше підключення: об’єднуємо те, що на телефоні, з тим, що вже в акаунті
+      POM = { z: pomUnion(POM.z, srv.z), u: pomUnion(POM.u, srv.u) }; lsSet('zp_pom', POM); lsSet('zp_pom_s', r.t || 0);
+      if (POM.z.length || POM.u.length) pomSave(); else lsSet('zp_pom_s', r.t || 0);
+    } else if (r.t !== s) {                            // в акаунті змінили з іншого пристрою
+      if (dirty) { POM = { z: pomUnion(POM.z, srv.z), u: pomUnion(POM.u, srv.u) }; lsSet('zp_pom', POM); lsSet('zp_pom_s', r.t); pomSave(); }
+      else { POM = { z: srv.z, u: srv.u }; lsSet('zp_pom', POM); lsSet('zp_pom_s', r.t); }
+    } else if (dirty) pomPush();
+    if (!$('vPom').classList.contains('hidden')) renderPom();
+    renderPomPick();
+  }).accPom(ACC.token);
 }
 function cnt(arr, n) { return arr.filter(function (x) { return same(x, n); }).length; }
 function initPom() {
@@ -909,7 +949,7 @@ function renderPom() {
       b.onclick = function (e) {
         e.stopPropagation();
         if (!confirm('Видалити «' + n + '» з помянника?')) return;
-        POM[k].splice(i, 1); lsSet('zp_pom', POM);
+        POM[k].splice(i, 1); pomSave();
         PSEL[k] = PSEL[k].filter(function (x) { return x !== i; }).map(function (x) { return x > i ? x - 1 : x; });
         renderPom();
       };
@@ -1086,7 +1126,8 @@ function untilText(x) {
 }
 function renderMy(refresh) {
   var box = $('myList'), now = kyivNow();
-  if (!MY.length) { box.innerHTML = '<div class="card"><p class="soft" style="margin:0">Тут з’являться записки, які ви подасте з цього телефона.</p></div>'; return; }
+  if (refresh) renderAcc();
+  if (!MY.length) { box.innerHTML = '<div class="card"><p class="soft" style="margin:0">Тут з’являться записки, які ви подасте' + (ACC ? '' : ' з цього телефона') + '.</p></div>'; return; }
   box.innerHTML = '';
   // зверху — записки, які ще можна змінити; подані раніше — згорнуті нижче, щоб не накопичувались
   var openL = MY.filter(function (x) { return isOpen(x, now); }), oldL = MY.filter(function (x) { return !isOpen(x, now); });
@@ -1116,7 +1157,7 @@ function renderMy(refresh) {
     (open || !oldBox ? box : oldBox).appendChild(c);
   });
   if (oldBox) box.appendChild(oldBox);
-  if (refresh) refreshMy();
+  if (refresh) { if (ACC) syncAcc(); else refreshMy(); }
 }
 // посилання на банку Monobank: одразу підставляємо суму та коментар із номером записки
 function jarUrl(sum, id, many) {
@@ -1255,6 +1296,82 @@ function freshCfg() {
   if (S && !S.busy && !$('form').classList.contains('hidden')) render();
   if (!$('vSched').classList.contains('hidden')) renderSched();
 }
+
+/* ── акаунт через Telegram: записки на всіх пристроях і нагадування ── */
+var ACC = lsGet('zp_acc', null), ACC_T = null;
+function accHint() { $('doneAcc').classList.toggle('hidden', !!ACC || !CFG.pbot); }
+function accReset() { ACC = null; try { ['zp_acc', 'zp_pom_s', 'zp_pom_dirty'].forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {} }
+function renderAcc() {
+  var box = $('accBox');
+  if (ACC_T) { clearInterval(ACC_T); ACC_T = null; }
+  if (!CFG.pbot && !ACC) { box.innerHTML = ''; return; }
+  var c = el('div', 'card');
+  if (!ACC) {
+    c.innerHTML = '<h3 style="margin:0 0 6px">🔔 Підключіть Telegram</h3>' +
+      '<p class="meta">Ваші записки збережуться в акаунті — їх видно на будь-якому телефоні. А перед недільними й святковими службами бот нагадає вам; нагадування можна налаштувати. Паролі не потрібні.</p>' +
+      '<button class="main" id="accGo">Підключити Telegram</button><p class="err" id="accErr"></p>';
+    box.innerHTML = ''; box.appendChild(c);
+    $('accGo').onclick = accStart;
+    return;
+  }
+  c.innerHTML = '<h3 style="margin:0 0 6px">✅ Telegram підключено' + (ACC.name ? ' · ' + esc(ACC.name) : '') + '</h3>' +
+    '<p class="meta" id="accInfo">Записки з цього пристрою зберігаються у вашому акаунті.</p>' +
+    '<div class="btns" style="margin-top:8px">' + (CFG.pbot ? '<a class="btnlink" target="_blank" rel="noopener" href="https://t.me/' + esc(CFG.pbot) + '?start=menu">⚙️ Нагадування</a>' : '') +
+    '<button id="accOff">Відключити</button></div>' +
+    '<button class="link" id="accDel" style="color:var(--muted);font-size:14px">Видалити акаунт і зв’язок із записками</button>';
+  box.innerHTML = ''; box.appendChild(c);
+  $('accOff').onclick = function () { accReset(); renderAcc(); renderMy(false); accHint(); };
+  $('accDel').onclick = function () {
+    if (!confirm('Видалити акаунт? Нагадування припиняться, а ваші записки перестануть бути пов’язані з Telegram. Подані записки лишаться — їх прочитають на службі.')) return;
+    var t = ACC.token; accReset(); renderAcc(); accHint();
+    google.script.run.accDelete(t);
+  };
+  google.script.run.withSuccessHandler(function (r) {
+    if (!r || !r.ok) return;
+    if (r.gone) { accReset(); renderAcc(); accHint(); return; }      // акаунт видалили в боті
+    var i = $('accInfo'); if (i) i.textContent = r.remind ? 'Нагадую за ' + (r.lead === 120 ? '2 години' : r.lead + ' хвилин') + ' до служби. Записки з цього пристрою зберігаються у вашому акаунті.' : 'Нагадування вимкнено. Записки з цього пристрою зберігаються у вашому акаунті.';
+  }).accMe(ACC.token);
+}
+function accStart() {
+  var b = $('accGo'); b.disabled = true; b.textContent = 'Хвилинку…';
+  google.script.run.withSuccessHandler(function (r) {
+    if (!r || !r.ok) { b.disabled = false; b.textContent = 'Підключити Telegram'; $('accErr').textContent = (r && r.error) || 'Не вдалося. Спробуйте ще раз.'; return; }
+    var box = $('accBox'), c = el('div', 'card');
+    c.innerHTML = '<h3 style="margin:0 0 6px">Відкрийте Telegram</h3><p class="meta">Натисніть кнопку нижче, у чаті з ботом натисніть «Старт» — і поверніться сюди. Підключення завершиться саме.</p>' +
+      '<a class="main" target="_blank" rel="noopener" href="https://t.me/' + esc(r.bot) + '?start=' + esc(r.code) + '">Відкрити Telegram</a>' +
+      '<p class="hint" id="accWait">Чекаємо підтвердження…</p><button class="link" id="accCancel" style="color:var(--muted);font-size:14px">Скасувати</button>';
+    box.innerHTML = ''; box.appendChild(c);
+    var n = 0;
+    $('accCancel').onclick = function () { clearInterval(ACC_T); ACC_T = null; renderAcc(); };
+    ACC_T = setInterval(function () {
+      if (++n > 330) { clearInterval(ACC_T); ACC_T = null; $('accWait').textContent = 'Час вийшов. Натисніть «Скасувати» і спробуйте ще раз.'; return; }
+      google.script.run.withSuccessHandler(function (x) {
+        if (!x || !x.ok || !ACC_T) return;
+        if (x.expired) { clearInterval(ACC_T); ACC_T = null; $('accWait').textContent = 'Посилання застаріло. Натисніть «Скасувати» і спробуйте ще раз.'; return; }
+        if (!x.linked) return;
+        clearInterval(ACC_T); ACC_T = null;
+        ACC = { token: x.token, name: x.name }; lsSet('zp_acc', ACC);
+        renderAcc(); accHint(); syncAcc(); syncPom();
+      }).accLinkCheck(r.code);
+    }, 2000);
+  }).withFailureHandler(function () { b.disabled = false; b.textContent = 'Підключити Telegram'; $('accErr').textContent = 'Немає зв’язку. Спробуйте ще раз.'; }).accLinkStart();
+}
+// записки акаунта з таблиці — до тих, що збережені на цьому телефоні
+function syncAcc() {
+  if (!ACC) return;
+  google.script.run.withSuccessHandler(function (r) {
+    if (!r || !r.ok) return;
+    if (r.gone) { accReset(); renderAcc(); accHint(); return; }
+    var add = 0;
+    (r.entries || []).forEach(function (e) {
+      var have = MY.some(function (x) { return e.batch ? (x.batch && x.token === e.token) : (!x.batch && x.id === e.id && x.token === e.token); });
+      if (!have) { MY.push(e); add++; }
+    });
+    if (add) MY.sort(function (a, b) { return String(noteDate(b)).localeCompare(String(noteDate(a))); });
+    saveMy(); renderMy(false); refreshMy();
+  }).accNotes(ACC.token);
+}
+function noteDate(x) { return x.batch ? ((x.notes || [])[0] || {}).date || '' : x.date || ''; }
 
 boot();
 </script>
